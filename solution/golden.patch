@@ -1,0 +1,725 @@
+diff --git a/deno.json b/deno.json
+index 7b272d9..22c43ff 100644
+--- a/deno.json
++++ b/deno.json
+@@ -1,10 +1,11 @@
+ {
+   "name": "@olli/kvdex",
+-  "version": "2.0.2",
++  "version": "2.1.0",
+   "exports": {
+     ".": "./mod.ts",
+     "./zod": "./src/ext/zod/mod.ts",
+-    "./migrate": "./src/ext/migrate/mod.ts"
++    "./migrate": "./src/ext/migrate/mod.ts",
++    "./kv": "./src/ext/kv/mod.ts"
+   },
+   "tasks": {
+     "check": "deno check mod.ts src/*.ts tests/**/*.ts benchmarks/**/*.ts",
+diff --git a/src/collection.ts b/src/collection.ts
+index 9e1e733..319512a 100644
+--- a/src/collection.ts
++++ b/src/collection.ts
+@@ -81,7 +81,7 @@ import {
+ import { AtomicWrapper } from "./atomic_wrapper.ts"
+ import { AtomicPool } from "./atomic_pool.ts"
+ import { Document } from "./document.ts"
+-import { model } from "./model.ts"
++import { model as m } from "./model.ts"
+ import { concat, deepMerge, ulid } from "./deps.ts"
+ import { v8Serialize } from "./utils.ts"
+ import { v8Deserialize } from "./utils.ts"
+@@ -120,7 +120,7 @@ export function collection<
+   const TOutput extends KvValue,
+   const TOptions extends CollectionOptions<TOutput>,
+ >(
+-  model: Model<TInput, TOutput>,
++  model: Model<TInput, TOutput> = m(),
+   options?: TOptions,
+ ): BuilderFn<TInput, TOutput, TOptions> {
+   return (
+@@ -400,23 +400,6 @@ export class Collection<
+     )
+   }
+ 
+-  async findBySecondaryOrder<
+-    const K extends SecondaryIndexKeys<TOutput, TOptions>,
+-  >(
+-    order: K,
+-    options?: ListOptions<
+-      Document<TOutput, ParseId<TOptions>>,
+-      ParseId<TOptions>
+-    >,
+-  ): Promise<PaginationResult<Document<TOutput, ParseId<TOptions>>>> {
+-    const prefixKey = extendKey(this._keys.secondaryIndex, order as KvId)
+-    return await this.handleMany(
+-      prefixKey,
+-      (doc) => doc,
+-      options,
+-    )
+-  }
+-
+   /**
+    * Finds multiple documents with the given array of ids in the KV store.
+    *
+@@ -722,29 +705,6 @@ export class Collection<
+     return { cursor }
+   }
+ 
+-  async deleteBySecondaryOrder<
+-    const K extends SecondaryIndexKeys<TOutput, TOptions>,
+-  >(
+-    order: K,
+-    options?: ListOptions<
+-      Document<TOutput, ParseId<TOptions>>,
+-      ParseId<TOptions>
+-    >,
+-  ): Promise<Pagination> {
+-    // Create prefix key
+-    const prefixKey = extendKey(this._keys.secondaryIndex, order as KvId)
+-
+-    // Delete documents by secondary index, return iterator cursor
+-    const { cursor } = await this.handleMany(
+-      prefixKey,
+-      (doc) => this.deleteDocuments([doc.id], this._keepsHistory),
+-      options,
+-    )
+-
+-    // Return iterator cursor
+-    return { cursor }
+-  }
+-
+   /**
+    * Updates a document with the given id in the KV store.
+    *
+@@ -1027,7 +987,7 @@ export class Collection<
+    *
+    * @example
+    * ```ts
+-   * // Updates all user documents and sets name = 67
++   * // Updates all user documents and sets age = 67
+    * await db.users.updateMany({ age: 67 })
+    * ```
+    *
+@@ -1071,7 +1031,21 @@ export class Collection<
+     )
+   }
+ 
+-  async updateBySecondaryOrder<
++  /**
++   * Update the value of multiple existing documents in the collection by a secondary order.
++   *
++   * @example
++   * ```ts
++   * // Updates the first 10 users ordered by age and sets username = "anon"
++   * await db.users.updateManyBySecondaryOrder("age", { username: "anon" })
++   * ```
++   *
++   * @param order - Secondary order to update documents by.
++   * @param data - Updated data to be inserted into documents.
++   * @param options - Update many options, optional.
++   * @returns Promise resolving to an object containing iterator cursor and result list.
++   */
++  async updateManyBySecondaryOrder<
+     const K extends SecondaryIndexKeys<TOutput, TOptions>,
+     const T extends UpdateManyOptions<
+       Document<TOutput, ParseId<TOptions>>,
+@@ -1197,6 +1171,20 @@ export class Collection<
+     }
+   }
+ 
++  /**
++   * Update the value of one existing document in the collection by a secondary order.
++   *
++   * @example
++   * ```ts
++   * // Updates the first user ordered by age and sets username = "anon"
++   * const result = await db.users.updateOneBySecondaryOrder("age", { username: "anon" })
++   * ```
++   *
++   * @param order - Secondary order to update document by.
++   * @param data - Updated data to be inserted into document.
++   * @param options - Update many options, optional.
++   * @returns Promise resolving to either a commit result or commit error object.
++   */
+   async updateOneBySecondaryOrder<
+     const T extends UpdateOneOptions<
+       Document<TOutput, ParseId<TOptions>>,
+@@ -1360,6 +1348,46 @@ export class Collection<
+     return { cursor }
+   }
+ 
++  /**
++   * Delete multiple documents from the KV store by a secondary order.
++   *
++   * The method takes an optional options argument that can be used for filtering of documents, and pagination.
++   *
++   * If no options are provided, all documents in the collection are deleted.
++   *
++   * @example
++   * ```ts
++   * // Deletes the first 10 users ordered by age
++   * await db.users.deleteManyBySecondaryOrder("age", { limit: 10 })
++   * ```
++   *
++   * @param order - Secondary order to delete documents by.
++   * @param options - List options, optional.
++   * @returns A promise that resolves to void.
++   */
++  async deleteManyBySecondaryOrder<
++    const K extends SecondaryIndexKeys<TOutput, TOptions>,
++  >(
++    order: K,
++    options?: ListOptions<
++      Document<TOutput, ParseId<TOptions>>,
++      ParseId<TOptions>
++    >,
++  ): Promise<Pagination> {
++    // Create prefix key
++    const prefixKey = extendKey(this._keys.secondaryIndex, order as KvId)
++
++    // Delete documents by secondary index, return iterator cursor
++    const { cursor } = await this.handleMany(
++      prefixKey,
++      (doc) => this.deleteDocuments([doc.id], this._keepsHistory),
++      options,
++    )
++
++    // Return iterator cursor
++    return { cursor }
++  }
++
+   /**
+    * Retrieves multiple documents from the KV store according to the given options.
+    *
+@@ -1393,6 +1421,44 @@ export class Collection<
+     )
+   }
+ 
++  /**
++   * Retrieves multiple documents from the KV store in the specified
++   * secondary order and according to the given options.
++   *
++   * If no options are provided, all documents are retrieved.
++   *
++   * @example
++   * ```ts
++   * // Get all users ordered by age
++   * const { result } = await db.users.getManyBySecondaryOrder("age")
++   *
++   * // Only get users with username that starts with "a", ordered by age
++   * const { result } = await db.users.getManyBySecondaryOrder("age", {
++   *   filter: doc => doc.value.username.startsWith("a")
++   * })
++   * ```
++   *
++   * @param order - Secondary order to retrieve documents by.
++   * @param options - List options, optional.
++   * @returns A promise that resovles to an object containing a list of the retrieved documents and the iterator cursor
++   */
++  async getManyBySecondaryOrder<
++    const K extends SecondaryIndexKeys<TOutput, TOptions>,
++  >(
++    order: K,
++    options?: ListOptions<
++      Document<TOutput, ParseId<TOptions>>,
++      ParseId<TOptions>
++    >,
++  ): Promise<PaginationResult<Document<TOutput, ParseId<TOptions>>>> {
++    const prefixKey = extendKey(this._keys.secondaryIndex, order as KvId)
++    return await this.handleMany(
++      prefixKey,
++      (doc) => doc,
++      options,
++    )
++  }
++
+   /**
+    * Retrieves one document from the KV store according to the given options.
+    *
+@@ -1435,7 +1501,7 @@ export class Collection<
+   /**
+    * Retrieves one document from the KV store by a secondary index and according to the given options.
+    *
+-   * If no options are given, the first document in the collection by the given index is retreived.
++   * If no options are given, the first document in the collection by the given index is retrieved.
+    *
+    * @example
+    * ```ts
+@@ -1484,6 +1550,21 @@ export class Collection<
+     return result.at(0) ?? null
+   }
+ 
++  /**
++   * Retrieves one document from the KV store by a secondary order and according to the given options.
++   *
++   * If no options are provided, the first document in the collection by the given order is retrieved.
++   *
++   * @example
++   * ```ts
++   * // Get the first user ordered by age
++   * const user = await db.users.getOneBySecondaryOrder("age")
++   * ```
++   *
++   * @param order - Secondary order to retrieve document by.
++   * @param options - List options, optional.
++   * @returns A promise resolving to either a document or null.
++   */
+   async getOneBySecondaryOrder<
+     const K extends SecondaryIndexKeys<TOutput, TOptions>,
+   >(
+@@ -1595,6 +1676,25 @@ export class Collection<
+     return { cursor }
+   }
+ 
++  /**
++   * Executes a callback function for every document by a secondary order and according to the given options.
++   *
++   * If no options are provided, the callback function is executed for all documents.
++   *
++   * @example
++   * ```ts
++   * // Prints the username of all users ordered by age
++   * await db.users.forEachBySecondaryOrder(
++   *   "age",
++   *   (doc) => console.log(doc.value.username),
++   * )
++   * ```
++   *
++   * @param order - Secondary order to retrieve documents by.
++   * @param fn - Callback function.
++   * @param options - List options, optional.
++   * @returns A promise that resovles to an object containing the iterator cursor.
++   */
+   async forEachBySecondaryOrder<
+     const K extends SecondaryIndexKeys<TOutput, TOptions>,
+   >(
+@@ -1710,6 +1810,27 @@ export class Collection<
+     )
+   }
+ 
++  /**
++   * Executes a callback function for every document by a secondary order and according to the given options.
++   *
++   * If no options are provided, the callback function is executed for all documents.
++   *
++   * The results from the callback function are returned as a list.
++   *
++   * @example
++   * ```ts
++   * // Returns a list of usernames of all users ordered by age
++   * const { result } = await db.users.mapBySecondaryOrder(
++   *   "age",
++   *   (doc) => doc.value.username,
++   * )
++   * ```
++   *
++   * @param order - Secondary order to map documents by.
++   * @param fn - Callback function.
++   * @param options - List options, optional.
++   * @returns A promise that resovles to an object containing a list of the callback results and the iterator cursor.
++   */
+   async mapBySecondaryOrder<
+     const T,
+     const K extends SecondaryIndexKeys<TOutput, TOptions>,
+@@ -1822,6 +1943,23 @@ export class Collection<
+     return result
+   }
+ 
++  /**
++   * Counts the number of documents in the collection by a secondary order.
++   *
++   * @example
++   *
++   * ```ts
++   * // Counts how many of the first 10 users ordered by age that are under the age of 18
++   * const count = await db.users.countBySecondaryOrder("age", {
++   *   limit: 10,
++   *   filter: (doc) => doc.value.age < 18
++   * })
++   * ```
++   *
++   * @param order - Secondary order to count documents by.
++   * @param options - Count options.
++   * @returns A promise that resolves to a number representing the count.
++   */
+   async countBySecondaryOrder<
+     const K extends SecondaryIndexKeys<TOutput, TOptions>,
+   >(
+@@ -1959,7 +2097,7 @@ export class Collection<
+     }
+ 
+     // Return document
+-    return new Document(model<T, T>(), {
++    return new Document(m<T, T>(), {
+       id,
+       versionstamp: result.versionstamp,
+       value: result.value as T,
+diff --git a/src/ext/map_kv/atomic.ts b/src/ext/kv/atomic.ts
+similarity index 96%
+rename from src/ext/map_kv/atomic.ts
+rename to src/ext/kv/atomic.ts
+index e2a4def..a2d94d0 100644
+--- a/src/ext/map_kv/atomic.ts
++++ b/src/ext/kv/atomic.ts
+@@ -7,10 +7,10 @@ import type {
+   DenoKvSetOptions,
+   DenoKvStrictKey,
+ } from "../../types.ts"
+-import type { MapKv } from "./kv.ts"
++import type { MapKv } from "./map_kv.ts"
+ import { createVersionstamp } from "./utils.ts"
+ 
+-export class KvMapAtomicOperation implements DenoAtomicOperation {
++export class MapKvAtomicOperation implements DenoAtomicOperation {
+   private kv: MapKv
+   private checks: (() => boolean)[]
+   private ops: ((versionstamp: string) => void)[]
+diff --git a/src/ext/map_kv/kv.ts b/src/ext/kv/map_kv.ts
+similarity index 82%
+rename from src/ext/map_kv/kv.ts
+rename to src/ext/kv/map_kv.ts
+index cd53490..9f8fb55 100644
+--- a/src/ext/map_kv/kv.ts
++++ b/src/ext/kv/map_kv.ts
+@@ -14,19 +14,39 @@ import type {
+   DenoKvWatchOptions,
+ } from "../../types.ts"
+ import { jsonParse, jsonStringify } from "../../utils.ts"
+-import { KvMapAtomicOperation } from "./atomic.ts"
++import { MapKvAtomicOperation } from "./atomic.ts"
+ import { Watcher } from "./watcher.ts"
+ import { createVersionstamp, keySort } from "./utils.ts"
+-
+-export type SimpleMap<K, V> = {
+-  set(key: K, value: V): void
+-  get(key: K): V | null
+-  delete(key: K): void
+-  entries(): IterableIterator<[K, V]>
+-}
+-
++import type { BasicMap, MapKvOptions } from "./types.ts"
++
++/**
++ * KV instance utilising a `BasicMap` as it's backend.
++ *
++ * Uses `new Map()` by default.
++ *
++ * @example
++ * ```ts
++ * // Initializes a new KV instance wrapping the built-in `Map`
++ * const kv = new MapKv()
++ * ```
++ *
++ * @example
++ * ```ts
++ * // Initializes a new KV instance utilizing `localStorage` as it's backend
++ * const map = new StorageAdapter()
++ * const kv = new MapKv({ map })
++ * ```
++ *
++ * @example
++ * ```ts
++ * // Initializes a new ephimeral KV instance explicitly utilizing `localStorage` as it's backend
++ * const map = new StorageAdapter(localStorage)
++ * const kv = new MapKv({ map, clearOnClose: true })
++ * ```
++ */
+ export class MapKv implements DenoKv {
+-  private map: SimpleMap<string, Omit<DenoKvEntry, "key">>
++  private map: BasicMap<string, Omit<DenoKvEntry, "key">>
++  private clearOnClose: boolean
+   private watchers: Watcher[]
+   private listenHandlers: ((msg: unknown) => unknown)[]
+   private listener:
+@@ -36,11 +56,13 @@ export class MapKv implements DenoKv {
+     }
+     | undefined
+ 
+-  constructor(
+-    map?: SimpleMap<string, Omit<DenoKvEntry, "key">>,
+-    entries?: DenoKvEntry[],
+-  ) {
+-    this.map = map ?? new Map()
++  constructor({
++    map = new Map(),
++    entries,
++    clearOnClose = false,
++  }: MapKvOptions = {}) {
++    this.map = map
++    this.clearOnClose = clearOnClose
+     this.watchers = []
+     this.listenHandlers = []
+ 
+@@ -52,6 +74,7 @@ export class MapKv implements DenoKv {
+   close(): void {
+     this.watchers.forEach((w) => w.cancel())
+     this.listener?.resolve()
++    if (this.clearOnClose) this.map.clear()
+   }
+ 
+   delete(key: DenoKvStrictKey) {
+@@ -189,7 +212,7 @@ export class MapKv implements DenoKv {
+   }
+ 
+   atomic(): DenoAtomicOperation {
+-    return new KvMapAtomicOperation(this)
++    return new MapKvAtomicOperation(this)
+   }
+ 
+   _set(
+diff --git a/src/ext/kv/mod.ts b/src/ext/kv/mod.ts
+new file mode 100644
+index 0000000..400ca04
+--- /dev/null
++++ b/src/ext/kv/mod.ts
+@@ -0,0 +1,55 @@
++/**
++ * @module # KV
++ *
++ * Support for alternative KV backends, such as `Map` and `localStorage`.
++ *
++ * Can be used to employ `kvdex` in the browser or other environments where Deno's KV store is not available,
++ * or to adapt to other database backends.
++ *
++ * @example
++ * ```ts
++ * import { kvdex } from "@olli/kvdex"
++ * import { MapKv } from "@olli/kvdex/kv"
++ *
++ * // Create a database from a `MapKv` instance, using `Map` as it's backend by default.
++ * const kv = new MapKv()
++ * const db = kvdex(kv, {})
++ * ```
++ *
++ * @example
++ * ```ts
++ * import { kvdex } from "@olli/kvdex"
++ * import { MapKv } from "@olli/kvdex/kv"
++ *
++ * // Create a database from a `MapKv` instance, explicitly using `Map` as it's backend.
++ * const kv = new MapKv({ map: new Map() })
++ * const db = kvdex(kv, {})
++ * ```
++ *
++ * @example
++ * ```ts
++ * import { kvdex } from "@olli/kvdex"
++ * import { MapKv, StorageAdapter } from "@olli/kvdex/kv"
++ *
++ * // Create a database from a `MapKv` instance, using `localStorage` as it's backend by default.
++ * const map = new StorageAdapter()
++ * const kv = new MapKv({ map })
++ * const db = kvdex(kv, {})
++ * ```
++ *
++ * @example
++ * ```ts
++ * import { kvdex } from "@olli/kvdex"
++ * import { MapKv, StorageAdapter } from "@olli/kvdex/kv"
++ *
++ * // Create an ephimeral database from a `MapKv` instance, explicitly using `localStorage` as it's backend.
++ * const map = new StorageAdapter(localStorage)
++ * const kv = new MapKv({ map, clearOnClose: true })
++ * const db = kvdex(kv, {})
++ * ```
++ */
++
++export { MapKv } from "./map_kv.ts"
++export { StorageAdapter } from "./storage_adapter.ts"
++export { MapKvAtomicOperation } from "./atomic.ts"
++export type * from "./types.ts"
+diff --git a/src/ext/kv/storage_adapter.ts b/src/ext/kv/storage_adapter.ts
+new file mode 100644
+index 0000000..4afca64
+--- /dev/null
++++ b/src/ext/kv/storage_adapter.ts
+@@ -0,0 +1,60 @@
++import { jsonParse, jsonStringify } from "../../utils.ts"
++import type { BasicMap } from "./types.ts"
++
++/**
++ * BasicMap adapter for Storage.
++ *
++ * Enables a Storage object, such as `localStorage`, to be utilized as a basic map.
++ *
++ * Wraps `localStorage` by default.
++ *
++ * @example
++ * ```ts
++ * // Creates a new BasicMap, wrapping `localStorage`
++ * const map = new StorageAdapter()
++ * ```
++ *
++ * @example
++ * ```ts
++ * // Creates a new BasicMap, explicitly wrapping `localStorage`
++ * const map = new StorageAdapter(localStorage)
++ * ```
++ */
++export class StorageAdapter<K, V> implements BasicMap<K, V> {
++  private storage: Storage
++
++  constructor(storage: Storage = localStorage) {
++    this.storage = storage
++  }
++
++  set(key: K, value: V): void {
++    this.storage.setItem(jsonStringify(key), jsonStringify(value))
++  }
++
++  get(key: K): V | undefined {
++    const valStr = this.storage.getItem(jsonStringify(key))
++    return !valStr ? undefined : jsonParse<V>(valStr)
++  }
++
++  delete(key: K): void {
++    this.storage.removeItem(jsonStringify(key))
++  }
++
++  *entries(): IterableIterator<[K, V]> {
++    for (let i = 0; i < this.storage.length; i++) {
++      const keyStr = this.storage.key(i)
++      if (!keyStr) return
++
++      const valStr = this.storage.getItem(keyStr)
++      if (!valStr) return
++
++      const key = jsonParse<K>(keyStr)
++      const value = jsonParse<V>(valStr)
++      yield [key, value]
++    }
++  }
++
++  clear(): void {
++    this.storage.clear()
++  }
++}
+diff --git a/src/ext/kv/types.ts b/src/ext/kv/types.ts
+new file mode 100644
+index 0000000..3e82ec5
+--- /dev/null
++++ b/src/ext/kv/types.ts
+@@ -0,0 +1,59 @@
++import type { DenoKvEntry } from "../../types.ts"
++
++/** Interface for basic map methods */
++export type BasicMap<K, V> = {
++  /**
++   * Set a new key/value entry.
++   *
++   * @param key - Key that identifies the entry.
++   * @param value - Value of the entry.
++   * @returns void
++   */
++  set(key: K, value: V): void
++
++  /**
++   * Get a key/value entry from the map.
++   *
++   * @param key - Key that identifies the entry.
++   * @returns The entry value or undefined if it does not exist in the map.
++   */
++  get(key: K): V | undefined
++
++  /**
++   * Delete a key/value entry from the map.
++   *
++   * @param key - Key that identifies the entry.
++   * @returns void
++   */
++  delete(key: K): void
++
++  /**
++   * Get an iterator of the key/value entries in the map.
++   *
++   * @returns An IterableIterator of [key, value] entries.
++   */
++  entries(): IterableIterator<[K, V]>
++
++  /** Removes all key/value entries from the map. */
++  clear(): void
++}
++
++/** Options when constructing a new MapKv instance. */
++export type MapKvOptions = {
++  /**
++   * Underlying map used for data storage.
++   *
++   * @default new Map()
++   */
++  map?: BasicMap<any, any>
++
++  /** Initial KV entries. */
++  entries?: DenoKvEntry[]
++
++  /**
++   * Whether the underlying map should be cleared or not when the store is closed.
++   *
++   * @default false
++   */
++  clearOnClose?: boolean
++}
+diff --git a/src/ext/map_kv/utils.ts b/src/ext/kv/utils.ts
+similarity index 100%
+rename from src/ext/map_kv/utils.ts
+rename to src/ext/kv/utils.ts
+diff --git a/src/ext/map_kv/watcher.ts b/src/ext/kv/watcher.ts
+similarity index 98%
+rename from src/ext/map_kv/watcher.ts
+rename to src/ext/kv/watcher.ts
+index 3fa8f59..9bb9f00 100644
+--- a/src/ext/map_kv/watcher.ts
++++ b/src/ext/kv/watcher.ts
+@@ -1,7 +1,7 @@
+ import type { DenoKvWatchOptions } from "../../../mod.ts"
+ import type { DenoKvEntryMaybe, DenoKvStrictKey } from "../../types.ts"
+ import { jsonStringify } from "../../utils.ts"
+-import type { MapKv } from "./kv.ts"
++import type { MapKv } from "./map_kv.ts"
+ 
+ export class Watcher {
+   private kv: MapKv
+diff --git a/src/ext/map_kv/storage_adapter.ts b/src/ext/map_kv/storage_adapter.ts
+deleted file mode 100644
+index 825d90e..0000000
+--- a/src/ext/map_kv/storage_adapter.ts
++++ /dev/null
+@@ -1,37 +0,0 @@
+-import { jsonParse, jsonStringify } from "../../utils.ts"
+-import type { SimpleMap } from "./map_kv.ts"
+-
+-export class StorageAdapter<K, V> implements SimpleMap<K, V> {
+-  private storage: Storage
+-
+-  constructor(storage?: Storage) {
+-    this.storage = storage ?? localStorage
+-  }
+-
+-  set(key: K, value: V): void {
+-    this.storage.setItem(jsonStringify(key), jsonStringify(value))
+-  }
+-
+-  get(key: K): V | null {
+-    const valStr = this.storage.getItem(jsonStringify(key))
+-    return !valStr ? null : jsonParse<V>(valStr)
+-  }
+-
+-  delete(key: K): void {
+-    this.storage.removeItem(jsonStringify(key))
+-  }
+-
+-  *entries(): IterableIterator<[K, V]> {
+-    for (let i = 0; i < this.storage.length; i++) {
+-      const keyStr = this.storage.key(i)
+-      if (!keyStr) return
+-
+-      const valStr = this.storage.getItem(keyStr)
+-      if (!valStr) return
+-
+-      const key = jsonParse<K>(keyStr)
+-      const value = jsonParse<V>(valStr)
+-      yield [key, value]
+-    }
+-  }
+-}
