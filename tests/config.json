@@ -22,13 +22,25 @@
     "fail_to_pass": [
       "indexable_collection - getManyBySecondaryOrder",
       "indexable_collection - deleteManyBySecondaryOrder",
+      "indexable_collection - updateManyBySecondaryOrder",
       "serialized_indexable_collection - getManyBySecondaryOrder",
       "serialized_indexable_collection - deleteManyBySecondaryOrder",
+      "serialized_indexable_collection - updateManyBySecondaryOrder",
+      "ext - kv",
+      "indexable_collection - basic",
+      "serialized_indexable_collection - basic",
+      "serialized_collection - basic",
+      "collection - basic",
+      "document - basic",
+      "utils - basic",
+      "db - basic",
+      "db - advanced"
+    ],
+    "pass_to_pass": [
       "ext - kv"
     ],
-    "pass_to_pass": [],
     "required_pass": [],
-    "allow_extra_failures": true,
+    "allow_extra_failures": false,
     "parser": {
       "framework": "custom",
       "result_source": "stdout_stderr",
