@@ -1,0 +1,46 @@
+{
+  "schema_version": "compact-swebench-harborized-v1",
+  "execution": {
+    "commands": [
+      "deno test --no-check --allow-write --allow-read --allow-ffi --allow-sys --unstable-kv --trace-leaks ${TEST_FILES}"
+    ],
+    "selected_test_files_to_run": [
+      "tests/ext/kv.test.ts",
+      "tests/indexable_collection/deleteManyBySecondaryOrder.test.ts",
+      "tests/indexable_collection/getManyBySecondaryOrder.test.ts",
+      "tests/indexable_collection/updateManyBySecondaryOrder.test.ts",
+      "tests/serialized_indexable_collection/deleteManyBySecondaryOrder.test.ts",
+      "tests/serialized_indexable_collection/getManyBySecondaryOrder.test.ts",
+      "tests/serialized_indexable_collection/updateManyBySecondaryOrder.test.ts"
+    ],
+    "env": {
+      "NO_COLOR": "1"
+    },
+    "timeout_sec": 1800
+  },
+  "grading": {
+    "fail_to_pass": [
+      "indexable_collection - getManyBySecondaryOrder",
+      "indexable_collection - deleteManyBySecondaryOrder",
+      "serialized_indexable_collection - getManyBySecondaryOrder",
+      "serialized_indexable_collection - deleteManyBySecondaryOrder",
+      "ext - kv"
+    ],
+    "pass_to_pass": [],
+    "required_pass": [],
+    "allow_extra_failures": true,
+    "parser": {
+      "framework": "custom",
+      "result_source": "stdout_stderr",
+      "pass_regex": "^\\s*(?P<name>\\S.*?) \\.\\.\\. ok",
+      "fail_regex": "^\\s*(?P<name>\\S.*?) \\.\\.\\. FAILED"
+    }
+  },
+  "artifacts": {
+    "stdout_log": "/logs/verifier/test-stdout.txt",
+    "stderr_log": "/logs/verifier/test-stderr.txt",
+    "parsed_results": "/logs/verifier/output.json",
+    "report": "/logs/verifier/report.json",
+    "reward": "/logs/verifier/reward.txt"
+  }
+}
