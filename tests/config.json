@@ -6,12 +6,23 @@
     ],
     "selected_test_files_to_run": [
       "tests/ext/kv.test.ts",
-      "tests/indexable_collection/deleteManyBySecondaryOrder.test.ts",
       "tests/indexable_collection/getManyBySecondaryOrder.test.ts",
+      "tests/indexable_collection/deleteManyBySecondaryOrder.test.ts",
       "tests/indexable_collection/updateManyBySecondaryOrder.test.ts",
-      "tests/serialized_indexable_collection/deleteManyBySecondaryOrder.test.ts",
+      "tests/indexable_collection/secondaryOrderPagination.test.ts",
+      "tests/indexable_collection/secondaryOrderFiltering.test.ts",
+      "tests/indexable_collection/secondaryOrderConcurrency.test.ts",
+      "tests/indexable_collection/secondaryOrderEdgeCases.test.ts",
       "tests/serialized_indexable_collection/getManyBySecondaryOrder.test.ts",
-      "tests/serialized_indexable_collection/updateManyBySecondaryOrder.test.ts"
+      "tests/serialized_indexable_collection/deleteManyBySecondaryOrder.test.ts",
+      "tests/serialized_indexable_collection/updateManyBySecondaryOrder.test.ts",
+      "tests/serialized_indexable_collection/secondaryOrderPagination.test.ts",
+      "tests/serialized_indexable_collection/secondaryOrderFiltering.test.ts",
+      "tests/serialized_indexable_collection/secondaryOrderConcurrency.test.ts",
+      "tests/serialized_indexable_collection/secondaryOrderEdgeCases.test.ts",
+      "tests/ext/kvClear.test.ts",
+      "tests/ext/kvConcurrency.test.ts",
+      "tests/ext/kvEdgeCases.test.ts"
     ],
     "env": {
       "NO_COLOR": "1"
@@ -23,10 +34,21 @@
       "indexable_collection - getManyBySecondaryOrder",
       "indexable_collection - deleteManyBySecondaryOrder",
       "indexable_collection - updateManyBySecondaryOrder",
+      "indexable_collection - secondaryOrderPagination",
+      "indexable_collection - secondaryOrderFiltering",
+      "indexable_collection - secondaryOrderConcurrency",
+      "indexable_collection - secondaryOrderEdgeCases",
       "serialized_indexable_collection - getManyBySecondaryOrder",
       "serialized_indexable_collection - deleteManyBySecondaryOrder",
       "serialized_indexable_collection - updateManyBySecondaryOrder",
+      "serialized_indexable_collection - secondaryOrderPagination",
+      "serialized_indexable_collection - secondaryOrderFiltering",
+      "serialized_indexable_collection - secondaryOrderConcurrency",
+      "serialized_indexable_collection - secondaryOrderEdgeCases",
       "ext - kv",
+      "ext - kvClear",
+      "ext - kvConcurrency",
+      "ext - kvEdgeCases",
       "indexable_collection - basic",
       "serialized_indexable_collection - basic",
       "serialized_collection - basic",
@@ -37,7 +59,10 @@
       "db - advanced"
     ],
     "pass_to_pass": [
-      "ext - kv"
+      "ext - kv",
+      "ext - kvClear",
+      "ext - kvConcurrency",
+      "ext - kvEdgeCases"
     ],
     "required_pass": [],
     "allow_extra_failures": false,
